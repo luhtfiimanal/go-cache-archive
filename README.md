@@ -14,6 +14,7 @@ The library is implemented in pure Go and is production-ready on Linux (requires
 | **Sharding** | Splits a huge cache into multiple smaller files (`cache.dat`, `cache.dat.1`, …) so each file is below the filesystem’s sweet-spot size (default 256 MB × 4).  This keeps mmap page tables small and reduces `fsync` latency. |
 | **Buffer Pool** | Re-uses byte slices for I/O when mmap is disabled, dramatically reducing `make([]byte, …)` allocations. |
 | **Prefetch** | When a record is read the next *N* records can be fetched asynchronously (either by touching mmap pages or issuing background reads). Useful for sequential consumers. |
+| **Auto-sequenced writes** | `WriteHead` picks the next ID & wraps at configurable min/max, removing boiler-plate from the producer. |
 | **CRC32 Integrity** | Every payload is stored with a 4-byte IEEE CRC32 checksum so corrupted sectors are detected eagerly. |
 | **Goroutine-safe** | Internally sharded `sync.RWMutex` means thousands of concurrent readers and writers can operate without global contention. |
 
@@ -81,7 +82,12 @@ flowchart LR
 ```go
 import "github.com/luhtfiimanal/go-cache-archive"
 
-cache, err := archive.NewRingBufferCache("/var/lib/myapp/cache.dat", 1<<20 /*records*/, 128 /*bytes*/)
+// Create a cache allowing IDs 100..5000 (wraps automatically)
+opts := archive.DefaultOptions()
+opts.MinIDAlloc = 100
+opts.MaxIDAlloc = 5000
+
+cache, err := archive.NewRingBufferCacheWithOptions("/var/lib/myapp/cache.dat", opts)
 if err != nil { panic(err) }
 
 defer cache.Close()
@@ -95,6 +101,22 @@ p, _ := cache.Read(1)
 ```
 
 See `archive_test.go` for more examples.
+
+### Auto-sequenced writes (producer convenience)
+
+Instead of picking the next ID yourself, call `WriteHead` and let the cache advance **head** atomically:
+
+```go
+id, err := cache.WriteHead(payload, true) // flush to disk
+
+// and you can get the current head with
+head := cache.Head()
+
+// and tail with
+tail := cache.Tail()
+```
+
+`head`, `tail`, and `Head()` / `Tail()` give you visibility into the current range. They are persisted in a side-car *`.meta`* file so the cache resumes correctly after restart.
 
 ---
 
@@ -111,6 +133,7 @@ See `archive_test.go` for more examples.
 | `io.go` | `Write`, `Read`, `BulkWrite`, `BulkRead`, CRC logic, prefetch.
 | `stats.go` | Lightweight stats collection (`Hits`, `Misses`, ratios).
 | `flush_close.go` | `Flush` and `Close` implementations (msync/fsync).
+| `head_tail.go` | Ring-buffer metadata (head/tail) + `WriteHead`, `Head`, `Tail`.
 | `archive_test.go` | Unit tests covering correctness and concurrency.
 
 ---

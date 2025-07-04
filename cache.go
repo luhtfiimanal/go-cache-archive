@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/sys/unix"
 )
@@ -23,6 +24,14 @@ type RingBufferCache struct {
 	options CacheOptions
 	bufPool *sync.Pool // Pool untuk reuse buffer
 
+	// ring buffer meta
+	head         uint64 // last written id
+	tail         uint64 // oldest valid id (future use)
+	minIDAlloc   int64
+	maxIDAlloc   uint64
+	metaPath     string
+	writerActive uint32
+
 	prefetchMap *sync.Map // Map[id]bool untuk menandai data yang diprefetch
 
 	statMisses uint64 // statistik miss (access atau CRC corrupt)
@@ -30,15 +39,28 @@ type RingBufferCache struct {
 }
 
 // NewRingBufferCache membuat cache dengan opsi default (lihat DefaultOptions).
-func NewRingBufferCache(path string, size int64, recordSize int) (*RingBufferCache, error) {
-	return NewRingBufferCacheWithOptions(path, size, recordSize, DefaultOptions())
+func NewRingBufferCache(path string, opts CacheOptions) (*RingBufferCache, error) {
+	return NewRingBufferCacheWithOptions(path, opts)
 }
 
-// NewRingBufferCacheWithOptions membuat cache dengan opsi kustom.
-func NewRingBufferCacheWithOptions(basePath string, size int64, recordSize int, opts CacheOptions) (*RingBufferCache, error) {
-	if size <= 0 || recordSize <= 0 {
-		return nil, fmt.Errorf("size dan recordSize harus positif")
+// NewRingBufferCacheWithOptions creates a new RingBufferCache with the specified options.
+// Parameters:
+//   - basePath: The base file path for the cache shards.
+//   - opts: Configuration options for the cache.
+//
+// Returns:
+//   - A pointer to the created RingBufferCache.
+//   - An error if initialization fails, including directory creation, file opening, or memory mapping.
+func NewRingBufferCacheWithOptions(basePath string, opts CacheOptions) (*RingBufferCache, error) {
+	if opts.RecordSize <= 0 {
+		return nil, fmt.Errorf("RecordSize harus positif")
 	}
+	if opts.MaxIDAlloc <= opts.MinIDAlloc {
+		return nil, fmt.Errorf("MaxIDAlloc harus > MinIDAlloc")
+	}
+
+	size := int64(opts.MaxIDAlloc - opts.MinIDAlloc + 1)
+	recordSize := opts.RecordSize
 
 	diskRec := recordSize + 4 // +4 byte CRC32
 
@@ -135,7 +157,7 @@ func NewRingBufferCacheWithOptions(basePath string, size int64, recordSize int, 
 	nLocks := 256
 	locks := make([]sync.RWMutex, nLocks)
 
-	return &RingBufferCache{
+	cache := &RingBufferCache{
 		shards:      shards,
 		size:        size,
 		record:      recordSize,
@@ -143,7 +165,26 @@ func NewRingBufferCacheWithOptions(basePath string, size int64, recordSize int, 
 		locks:       locks,
 		nLock:       nLocks,
 		options:     opts,
+		minIDAlloc:  opts.MinIDAlloc,
+		maxIDAlloc:  uint64(opts.MaxIDAlloc),
 		bufPool:     pool,
 		prefetchMap: &sync.Map{},
-	}, nil
+		metaPath:    metaPath(basePath),
+	}
+
+	// load meta if exists, otherwise set initial head/tail
+	if h, t, err := loadMeta(cache.metaPath); err == nil {
+		atomic.StoreUint64(&cache.head, h)
+		atomic.StoreUint64(&cache.tail, t)
+	} else {
+		// fresh cache
+		start := uint64(cache.minIDAlloc)
+		if start == 0 {
+			start = 1
+		}
+		atomic.StoreUint64(&cache.head, start-1)
+		atomic.StoreUint64(&cache.tail, start)
+	}
+
+	return cache, nil
 }

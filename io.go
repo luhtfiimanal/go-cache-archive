@@ -32,15 +32,25 @@ func (c *RingBufferCache) prefetch(s *shard, relID int64) {
 }
 
 // Write menulis payload ke ID tertentu.
-func (c *RingBufferCache) Write(id int64, payload []byte, flush bool) error {
-	if id < 1 || id > c.size {
-		return fmt.Errorf("id out of range: %d (max: %d)", id, c.size)
+// translate absolute id to relative (1-based)
+func (c *RingBufferCache) absToRel(id int64) (int64, error) {
+	if id < c.minIDAlloc || id > int64(c.maxIDAlloc) {
+		return 0, fmt.Errorf("id out of range: %d (allowed %d..%d)", id, c.minIDAlloc, c.maxIDAlloc)
 	}
-	if len(payload) != c.record {
-		return fmt.Errorf("payload must be exactly %d bytes", c.record)
+	return id - c.minIDAlloc + 1, nil
+}
+
+func (c *RingBufferCache) Write(id int64, payload []byte, flush bool) error {
+	relID, err := c.absToRel(id)
+	if err != nil {
+		return err
 	}
 
-	shard, relID, err := c.findShard(id)
+	if len(payload) != c.record {
+		return fmt.Errorf("payload size mismatch: got %d want %d", len(payload), c.record)
+	}
+
+	shard, _, err := c.findShard(relID)
 	if err != nil {
 		return err
 	}
@@ -76,11 +86,12 @@ func (c *RingBufferCache) Write(id int64, payload []byte, flush bool) error {
 
 // Read mengambil payload dari ID tertentu.
 func (c *RingBufferCache) Read(id int64) ([]byte, error) {
-	if id < 1 || id > c.size {
-		return nil, fmt.Errorf("id out of range: %d (max: %d)", id, c.size)
+	relID, err := c.absToRel(id)
+	if err != nil {
+		return nil, err
 	}
 
-	shard, relID, err := c.findShard(id)
+	shard, _, err := c.findShard(relID)
 	if err != nil {
 		return nil, err
 	}
