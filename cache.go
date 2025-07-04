@@ -2,6 +2,7 @@ package archive
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -81,6 +82,13 @@ func NewRingBufferCacheWithOptions(basePath string, opts CacheOptions) (*RingBuf
 	// Pastikan direktori ada
 	if err := os.MkdirAll(filepath.Dir(basePath), 0o755); err != nil {
 		return nil, fmt.Errorf("gagal membuat direktori: %w", err)
+	}
+
+	// verifikasi konfigurasi persist
+	configPath := basePath + ".cfg"
+	if err := verifyOrWriteConfig(configPath, opts); err != nil {
+		log.Printf("[archive] configuration mismatch: %v", err)
+		panic(err)
 	}
 
 	// Inisialisasi shards
