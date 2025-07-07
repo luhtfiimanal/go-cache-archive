@@ -26,8 +26,8 @@ func newPersistedConfig(opts CacheOptions) persistedConfig {
 // verifyOrWriteConfig loads an existing .config file if present and verifies it
 // matches the supplied options. If the file does not exist, it is created.
 // On mismatch, it returns an error detailing the differences.
-func verifyOrWriteConfig(path string, opts CacheOptions) error {
-    want := newPersistedConfig(opts)
+func verifyOrWriteConfig(path string, opts *CacheOptions) error {
+    want := newPersistedConfig(*opts)
 
     if _, err := os.Stat(path); os.IsNotExist(err) {
         // first time: write file
@@ -44,7 +44,7 @@ func verifyOrWriteConfig(path string, opts CacheOptions) error {
         return nil
     }
 
-    // file exists, load & compare
+    // file exists, load & sync options
     f, err := os.Open(path)
     if err != nil {
         return fmt.Errorf("open config file: %w", err)
@@ -55,8 +55,10 @@ func verifyOrWriteConfig(path string, opts CacheOptions) error {
         return fmt.Errorf("decode config: %w", err)
     }
 
-    if have != want {
-        return fmt.Errorf("cache config mismatch:\n  on disk: %+v\n  provided: %+v", have, want)
-    }
+    // override supplied opts with persisted values to ensure consistency
+    opts.RecordSize = have.RecordSize
+    opts.MinIDAlloc = have.MinIDAlloc
+    opts.MaxIDAlloc = have.MaxIDAlloc
+    opts.ShardCount = have.ShardCount
     return nil
 }

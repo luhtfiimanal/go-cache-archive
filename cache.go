@@ -86,7 +86,7 @@ func NewRingBufferCacheWithOptions(basePath string, opts CacheOptions) (*RingBuf
 
 	// verifikasi konfigurasi persist
 	configPath := basePath + ".cfg"
-	if err := verifyOrWriteConfig(configPath, opts); err != nil {
+	if err := verifyOrWriteConfig(configPath, &opts); err != nil {
 		log.Printf("[archive] configuration mismatch: %v", err)
 		panic(err)
 	}

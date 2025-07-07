@@ -50,7 +50,7 @@ func (c *RingBufferCache) Write(id int64, payload []byte, flush bool) error {
 		return fmt.Errorf("payload size mismatch: got %d want %d", len(payload), c.record)
 	}
 
-	shard, _, err := c.findShard(relID)
+	shard, localID, err := c.findShard(relID)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (c *RingBufferCache) Write(id int64, payload []byte, flush bool) error {
 	m.Lock()
 	defer m.Unlock()
 
-	offset := (relID - 1) * int64(c.diskRec)
+	offset := (localID - 1) * int64(c.diskRec)
 
 	buf := c.getBufFromPool()
 	defer c.returnBufToPool(buf)
@@ -91,7 +91,7 @@ func (c *RingBufferCache) Read(id int64) ([]byte, error) {
 		return nil, err
 	}
 
-	shard, _, err := c.findShard(relID)
+	shard, localID, err := c.findShard(relID)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (c *RingBufferCache) Read(id int64) ([]byte, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	offset := (relID - 1) * int64(c.diskRec)
+	offset := (localID - 1) * int64(c.diskRec)
 
 	buf := c.getBufFromPool()
 	defer c.returnBufToPool(buf)
@@ -124,7 +124,7 @@ func (c *RingBufferCache) Read(id int64) ([]byte, error) {
 	atomic.AddUint64(&c.statHits, 1)
 
 	if c.options.PrefetchSize > 0 {
-		go c.prefetch(shard, relID)
+		go c.prefetch(shard, localID)
 	}
 
 	out := make([]byte, c.record)
@@ -181,7 +181,7 @@ func (c *RingBufferCache) Delete(id int64) error {
 	}
 
 	// Temukan shard dan offset.
-	shard, _, err := c.findShard(relID)
+	shard, localID, err := c.findShard(relID)
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func (c *RingBufferCache) Delete(id int64) error {
 	defer m.Unlock()
 
 	// Hitung offset byte di dalam shard.
-	offset := (relID - 1) * int64(c.diskRec)
+	offset := (localID - 1) * int64(c.diskRec)
 
 	// Persiapkan buffer berisi nol + CRC32 yang valid.
 	buf := c.getBufFromPool()
