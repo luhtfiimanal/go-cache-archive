@@ -168,3 +168,53 @@ func (c *RingBufferCache) BulkRead(startID int64, count int) ([][]byte, error) {
 	}
 	return res, nil
 }
+
+// Delete menghapus record dengan ID tertentu dengan cara menulis payload
+// bernilai nol sepanjang `record` byte serta CRC yang sesuai (agar terbaca
+// sebagai record kosong yang valid). Selalu melakukan flush (fsync/msync)
+// sehingga perubahan segera persisten di disk.
+func (c *RingBufferCache) Delete(id int64) error {
+	// Terjemahkan ID absolut ➜ relatif (1-based) serta cek rentang.
+	relID, err := c.absToRel(id)
+	if err != nil {
+		return err
+	}
+
+	// Temukan shard dan offset.
+	shard, _, err := c.findShard(relID)
+	if err != nil {
+		return err
+	}
+
+	// Ambil mutex eksklusif untuk ID ini agar tidak race dengan pembacaan/penulisan lain.
+	m := c.lock(id)
+	m.Lock()
+	defer m.Unlock()
+
+	// Hitung offset byte di dalam shard.
+	offset := (relID - 1) * int64(c.diskRec)
+
+	// Persiapkan buffer berisi nol + CRC32 yang valid.
+	buf := c.getBufFromPool()
+	defer c.returnBufToPool(buf)
+
+	// Payload kosong (c.record byte semuanya 0)
+	zeroPayload := buf[4:]
+	for i := range zeroPayload {
+		zeroPayload[i] = 0
+	}
+
+	crc := crc32.ChecksumIEEE(zeroPayload)
+	binary.LittleEndian.PutUint32(buf[0:4], crc)
+
+	// Tulis ke backing storage.
+	if shard.mmap != nil {
+		copy(shard.mmap[offset:offset+int64(c.diskRec)], buf)
+		return unix.Msync(shard.mmap, unix.MS_SYNC)
+	}
+
+	if _, err := shard.file.WriteAt(buf, offset); err != nil {
+		return err
+	}
+	return shard.file.Sync()
+}
