@@ -136,6 +136,29 @@ tail := cache.Tail()
 | `head_tail.go` | Ring-buffer metadata (head/tail) + `WriteHead`, `Head`, `Tail`.
 | `archive_test.go` | Unit tests covering correctness and concurrency.
 
+
+## Benchmarks (x86-64 desktop)
+
+Measured on AMD Ryzen 5 5600G, Go 1.24, Linux, `benchtime=100x`.
+Bench suite located in `bench/` module (uses pure-Go SQLite driver).
+
+| Operation | RingBufferCache | SQLite (modernc) | Speed-up |
+|-----------|-----------------|------------------|----------|
+| Write 1 record | **4.4 µs/op** | 30.6 µs/op | 6.9× |
+| Read 10 sequential (per record) | **1.5 µs/op** | 7.8 µs/op | 5.2× |
+| Read random | **1.6 µs/op** | 10.9 µs/op | 6.8× |
+
+
+## Benchmarks (Raspberry Pi 4)
+
+Measured on Raspberry Pi 4 Model B 4 GB, 64-bit Raspberry Pi OS, Go 1.24, `benchtime=100x`.
+
+| Operation | RingBufferCache | SQLite (modernc) | Speed-up |
+|-----------|-----------------|------------------|----------|
+| Write 1 record | **14.2 µs/op** | 75.4 µs/op | 5.3× |
+| Read 10 sequential (per record) | **4.5 µs/op** | 45.0 µs/op | 10× |
+| Read random | **4.8 µs/op** | 57.5 µs/op | 12× |
+
 ---
 
 ## Roadmap / Ideas
