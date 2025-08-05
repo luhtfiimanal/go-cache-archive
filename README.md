@@ -137,6 +137,12 @@ tail := cache.Tail()
 | `archive_test.go` | Unit tests covering correctness and concurrency.
 
 
+## Tuning & Configuration
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `PrefetchSize` | `4` | Number of records that will be **read-ahead** after each successful `Read(id)`. Set `0` to disable prefetching. Higher values can improve sequential read latency but will add background I/O in truly random workloads. |
+
 ## Benchmarks (x86-64 desktop)
 
 Measured on AMD Ryzen 5 5600G, Go 1.24, Linux, `benchtime=100x`.

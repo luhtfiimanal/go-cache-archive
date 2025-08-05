@@ -23,11 +23,7 @@ func (c *RingBufferCache) prefetch(s *shard, relID int64) {
 		if _, exists := c.prefetchMap.Load(id); exists {
 			continue
 		}
-		c.prefetchMap.Store(id, true)
-		go func(fetchID int64) {
-			c.Read(fetchID)
-			c.prefetchMap.Delete(fetchID) // simple eviction
-		}(id)
+		c.enqueuePrefetch(id)
 	}
 }
 
@@ -124,7 +120,7 @@ func (c *RingBufferCache) Read(id int64) ([]byte, error) {
 	atomic.AddUint64(&c.statHits, 1)
 
 	if c.options.PrefetchSize > 0 {
-		go c.prefetch(shard, localID)
+		c.prefetch(shard, localID)
 	}
 
 	out := make([]byte, c.record)

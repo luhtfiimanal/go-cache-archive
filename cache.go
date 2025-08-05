@@ -15,6 +15,8 @@ import (
 // dukungan sharding, memory-mapping, buffer-pool, dan prefetching.
 //
 // Semua operasi aman untuk goroutine.
+type prefetchTask struct{ id int64 }
+
 type RingBufferCache struct {
 	shards  []*shard       // Daftar file shards (selalu >=1)
 	size    int64          // Jumlah slot ID total (basis 1)
@@ -37,6 +39,10 @@ type RingBufferCache struct {
 
 	statMisses uint64 // statistik miss (access atau CRC corrupt)
 	statHits   uint64 // statistik hit
+
+	// prefetch worker pool
+	prefetchCh   chan prefetchTask
+	prefetchOnce sync.Once
 }
 
 // NewRingBufferCache membuat cache dengan opsi default (lihat DefaultOptions).
@@ -194,5 +200,9 @@ func NewRingBufferCacheWithOptions(basePath string, opts CacheOptions) (*RingBuf
 		atomic.StoreUint64(&cache.tail, start)
 	}
 
-	return cache, nil
+	// init prefetch workers if enabled
+if opts.PrefetchSize > 0 {
+    cache.initPrefetchWorkers()
+}
+return cache, nil
 }
